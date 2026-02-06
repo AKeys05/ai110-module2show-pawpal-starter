@@ -7,6 +7,16 @@
 - Briefly describe your initial UML design.
 - What classes did you include, and what responsibilities did you assign to each?
 
+Here are the three core actions I've identified first that a user should be able to do: add their pet, add new tasks, and generate a schedule.
+
+Building Block Brainstorm:
+- Pet/Owner class that holds the representation of the pet and owner including both of their names, the species of the pet, and maybe some preferences.
+
+- Tasks class that allows users to add/edit tasks that will feed into the schedule. Each should have a title, duration in minutes, and priority (low, med, high). Must clearly display all current tasks.
+
+- Scheduling class that can produce a daily plan for the pet and explain why the reasoning behind that plan. Must take into account contraints and prioritie from the tasks list. Must clearly display schedule.
+
+
 **b. Design changes**
 
 - Did your design change during implementation?
