@@ -16,11 +16,15 @@ Building Block Brainstorm:
 
 - Scheduling class that can produce a daily plan for the pet and explain why the reasoning behind that plan. Must take into account contraints and prioritie from the tasks list. Must clearly display schedule.
 
+The initial design has an Owner, Pet, Task, TaskList, ScheduledTask, and Scheduler class. The Owner class has name and pets attributes with an add_pet method. The Pet class has name, species, and preferences attributes. An owner can own multiple pets. The Task class has title, duration and priority attributes with an edit_task method. The ScheduledTask class references Task and has a task and time attribute. The TaskList class has a tasks attribute with add_task, edit_task, and display_tasks as methods. It contains many Task objects and is used by the Scheduler class. Lastly, the Scheduler class has generate_schedule and explain_schedule methods.
+
 
 **b. Design changes**
 
 - Did your design change during implementation?
 - If yes, describe at least one change and why you made it.
+
+After prompting the AI to review the skeleton for potential bottlenecks and missing relationships, I had it change the design to simplify the 4 core classes to Owner, Pet, Scheduler and Task, change some key attribute data types and add more helper methods.
 
 ---
 
