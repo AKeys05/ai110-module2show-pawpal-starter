@@ -33,7 +33,12 @@ After prompting the AI to review the skeleton for potential bottlenecks and miss
 **a. Constraints and priorities**
 
 - What constraints does your scheduler consider (for example: time, priority, preferences)?
+
+My scheduler considers if a task has to be done before or after a certain time (e.g., breakfast before 10:00 or walk after 12:00) and if its of low, high or medium priority. It also takes preferences into account such as if Buddy the dog prefers evening walks over morning.
+
 - How did you decide which constraints mattered most?
+
+The priority and time constraints take the highest precendence in deciding how to configure the schedule. 
 
 **b. Tradeoffs**
 
