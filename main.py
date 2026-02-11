@@ -1,4 +1,5 @@
 from pawpal_system import Owner, Pet, Task, Scheduler, Priority
+from datetime import time
 
 if __name__ == "__main__":
 	# Create an owner
@@ -31,7 +32,8 @@ if __name__ == "__main__":
 		duration=30,
 		priority=Priority.HIGH,
 		pet_name="Buddy",
-		time_constraint="before 09:00"
+		preferred_time=time(8, 0),  # Prefer 8:00 AM
+		time_constraint="before 09:00"  # Fallback: anytime before 9 AM
 	)
 
 	dog_feeding = Task(
@@ -39,7 +41,7 @@ if __name__ == "__main__":
 		duration=15,
 		priority=Priority.HIGH,
 		pet_name="Buddy",
-		time_constraint="before 08:00"
+		preferred_time=time(7, 0),  # Strict: must be at 7:00 AM
 	)
 
 	dog_playtime = Task(
@@ -55,7 +57,8 @@ if __name__ == "__main__":
 		duration=10,
 		priority=Priority.HIGH,
 		pet_name="Whiskers",
-		time_constraint="before 08:00"
+		preferred_time=time(6, 30),  # Prefer 6:30 AM
+		time_constraint="before 08:00"  # Fallback: anytime before 8 AM
 	)
 
 	cat_grooming = Task(

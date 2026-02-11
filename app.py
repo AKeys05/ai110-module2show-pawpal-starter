@@ -1,4 +1,5 @@
 import streamlit as st
+import datetime
 from pawpal_system import Owner, Pet, Task, Priority, Scheduler
 
 st.set_page_config(page_title="PawPal+", page_icon="🐾", layout="centered")
@@ -61,7 +62,7 @@ st.subheader("🐾 Manage Pets")
 if owner.pets:
     st.write("**Your Pets:**")
     pets_data = []
-    for pet in owner.pets:
+    for pet in owner.pets.values():
         pets_data.append({
             "Name": pet.name,
             "Species": pet.species.capitalize(),
@@ -98,7 +99,7 @@ if not owner.pets:
     st.warning("⚠️ Please add at least one pet before creating tasks.")
 else:
     # Pet selector for tasks
-    pet_names = [pet.name for pet in owner.pets]
+    pet_names = [pet.name for pet in owner.pets.values()]
     selected_pet_name = st.selectbox("Select pet for task", pet_names)
 
     col1, col2, col3 = st.columns(3)
@@ -109,12 +110,18 @@ else:
     with col3:
         priority = st.selectbox("Priority", ["low", "medium", "high"], index=2)
 
+    # Optional preferred time
+    use_preferred_time = st.checkbox("Set preferred time")
+    preferred_time = None
+    if use_preferred_time:
+        preferred_time = st.time_input("Preferred time", value=datetime.time(8, 0))
+
     # Optional time constraint
     add_constraint = st.checkbox("Add time constraint")
     time_constraint = None
     if add_constraint:
         constraint_type = st.radio("Constraint type", ["before", "after"])
-        constraint_time = st.time_input("Time", value=None)
+        constraint_time = st.time_input("Constraint time", value=None)
         if constraint_time:
             time_constraint = f"{constraint_type} {constraint_time.strftime('%H:%M')}"
 
@@ -131,6 +138,7 @@ else:
             duration=int(duration),
             priority=priority_map[priority],
             pet_name=selected_pet_name,
+            preferred_time=preferred_time,
             time_constraint=time_constraint
         )
 
@@ -146,11 +154,12 @@ else:
     all_tasks = owner.get_all_tasks()
     if all_tasks:
         tasks_data = []
-        for pet in owner.pets:
+        for pet in owner.pets.values():
             for task in pet.tasks:
                 tasks_data.append({
                     "Pet": pet.name,
                     "Task": task.title,
+                    "Preferred": task.preferred_time.strftime('%I:%M %p') if task.preferred_time else "-",
                     "Priority": task.priority.name,
                     "Duration (min)": task.duration,
                     "Constraint": task.time_constraint if task.time_constraint else "-",

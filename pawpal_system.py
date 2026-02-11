@@ -45,51 +45,121 @@ class Task:
 	pet_name: str  # Links task to specific pet - addresses missing Pet-Task relationship
 	id: str = field(default_factory=lambda: str(uuid.uuid4()))  # Fixes task identification bottleneck
 	is_recurring: bool = False
+	preferred_time: Optional[time] = None  # User's preferred time for task
 	time_constraint: Optional[str] = None  # e.g., "before 08:00", "after 18:00"
 	completed: bool = False  # Completion status
+
+	@staticmethod
+	def parse_preferred_time(time_str: str) -> Optional[time]:
+		"""Parse time string (e.g., '08:00', '8:00 AM') to time object.
+
+		Returns None if parsing fails.
+		"""
+		if not time_str:
+			return None
+
+		try:
+			# Try 24-hour format (HH:MM)
+			if ':' in time_str and ('AM' not in time_str.upper() and 'PM' not in time_str.upper()):
+				hour, minute = map(int, time_str.strip().split(':'))
+				return time(hour, minute)
+
+			# Try 12-hour format (HH:MM AM/PM)
+			from datetime import datetime
+			parsed = datetime.strptime(time_str.strip(), '%I:%M %p')
+			return parsed.time()
+		except:
+			return None
+
+	def validate_time_settings(self) -> tuple[bool, Optional[str]]:
+		"""Validate that preferred_time and time_constraint are compatible.
+
+		Returns (is_valid, error_message).
+		"""
+		if not self.preferred_time or not self.time_constraint:
+			return True, None
+
+		# Need to parse constraint - use a temporary scheduler instance
+		# This is a bit awkward but avoids circular dependencies
+		from datetime import datetime, timedelta
+
+		constraint = self.time_constraint.lower().strip()
+		earliest = None
+		latest = None
+
+		if "before" in constraint:
+			time_str = constraint.split("before")[1].strip()
+			hour, minute = map(int, time_str.split(":"))
+			latest = time(hour, minute)
+		elif "after" in constraint:
+			time_str = constraint.split("after")[1].strip()
+			hour, minute = map(int, time_str.split(":"))
+			earliest = time(hour, minute)
+
+		# Check if preferred time satisfies constraint
+		if earliest and self.preferred_time < earliest:
+			return False, f"Preferred time {self.preferred_time.strftime('%I:%M %p')} is before constraint earliest time"
+
+		if latest:
+			# Check if task would finish by latest time
+			preferred_dt = datetime.combine(datetime.today(), self.preferred_time)
+			end_dt = preferred_dt + timedelta(minutes=self.duration)
+			end_time = end_dt.time()
+
+			if end_time > latest:
+				return False, f"Task ending at {end_time.strftime('%I:%M %p')} exceeds constraint latest time"
+
+		return True, None
 
 class Owner:
 	def __init__(self, name: str):
 		self.name = name
-		self.pets: List[Pet] = []
+		self.pets: Dict[str, Pet] = {}  # Changed to dict for O(1) pet lookup
+		self.task_index: Dict[str, Task] = {}  # Task ID -> Task for O(1) task lookup
 		self.constraints: Dict[str, List[str]] = {}  # pet_name -> list of constraint descriptions
 
 	def add_pet(self, pet: Pet) -> None:
 		"""Add a pet to the owner's pet list."""
-		self.pets.append(pet)
+		self.pets[pet.name] = pet
+		# Index any existing tasks on the pet
+		for task in pet.tasks:
+			self.task_index[task.id] = task
 
 	def get_pet(self, pet_name: str) -> Optional[Pet]:
 		"""Retrieve a pet by name."""
-		for pet in self.pets:
-			if pet.name == pet_name:
-				return pet
-		return None
+		return self.pets.get(pet_name)
 
 	def add_task(self, pet_name: str, task: Task) -> bool:
 		"""Add a task to a specific pet's task list. Returns True if successful."""
 		pet = self.get_pet(pet_name)
 		if pet:
 			pet.add_task(task)
+			self.task_index[task.id] = task  # Add to index for O(1) lookup
 			return True
 		return False
 
 	def edit_task(self, task_id: str, **kwargs) -> bool:
 		"""Edit a task's properties by task ID. Returns True if successful."""
-		# Search through all pets to find the task
-		for pet in self.pets:
-			task = pet.get_task_by_id(task_id)
-			if task:
-				for key, value in kwargs.items():
-					if hasattr(task, key):
-						setattr(task, key, value)
-				return True
+		task = self.get_task_by_id(task_id)  # Use get_task_by_id which has fallback logic
+		if task:
+			for key, value in kwargs.items():
+				if hasattr(task, key):
+					setattr(task, key, value)
+			return True
 		return False
 
 	def get_task_by_id(self, task_id: str) -> Optional[Task]:
 		"""Retrieve a task by its ID across all pets."""
-		for pet in self.pets:
+		# Try index first for O(1) lookup
+		task = self.task_index.get(task_id)
+		if task:
+			return task
+		# Fall back to searching if not in index (handles tasks added directly to pets)
+		for pet in self.pets.values():
 			task = pet.get_task_by_id(task_id)
 			if task:
+				# Add to index for future lookups
+				self.task_index[task_id] = task
 				return task
 		return None
 
@@ -101,7 +171,7 @@ class Owner:
 	def get_all_tasks(self) -> List[Task]:
 		"""Get all tasks across all pets."""
 		all_tasks = []
-		for pet in self.pets:
+		for pet in self.pets.values():
 			all_tasks.extend(pet.tasks)
 		return all_tasks
 
@@ -117,7 +187,7 @@ class Owner:
 			print("No pets registered.")
 			return
 
-		for pet in self.pets:
+		for pet in self.pets.values():
 			print(f"\n{pet.name} ({pet.species}):")
 			if not pet.tasks:
 				print("  No tasks.")
@@ -125,6 +195,8 @@ class Owner:
 				for task in pet.tasks:
 					status = "✓" if task.completed else "○"
 					print(f"  {status} [{task.priority.name}] {task.title} ({task.duration} min)")
+					if task.preferred_time:
+						print(f"      Preferred time: {task.preferred_time.strftime('%I:%M %p')}")
 					if task.time_constraint:
 						print(f"      Constraint: {task.time_constraint}")
 
@@ -206,54 +278,89 @@ class Scheduler:
 			reverse=True
 		)
 
-		# Schedule tasks starting at 6 AM
-		current_time_minutes = 6 * 60  # 6:00 AM in minutes
-		scheduled_times = []  # Track occupied time slots
+		# Schedule tasks starting at 6 AM using time slot bitmap
+		start_time = 6 * 60  # 6:00 AM in minutes
+		max_time = 22 * 60  # 10 PM
+		slot_duration = 15  # Each slot represents 15 minutes
+		num_slots = (max_time - start_time) // slot_duration  # 64 slots (6 AM to 10 PM)
+
+		# Initialize bitmap: False = available, True = occupied
+		time_slots = [False] * num_slots
 
 		for task in sorted_tasks:
+			# Calculate how many 15-minute slots this task needs
+			slots_needed = (task.duration + slot_duration - 1) // slot_duration  # Round up
+
 			# Find a suitable time slot
 			scheduled = False
-			attempt_time = current_time_minutes
+			scheduled_time = None
+			reason = ""
 
-			# Try to find a time slot that works for up to 16 hours (6 AM to 10 PM)
-			max_time = 22 * 60  # 10 PM
+			# NEW: Try preferred time first
+			if task.preferred_time:
+				preferred_minutes = self._time_to_minutes(task.preferred_time)
+				preferred_slot = (preferred_minutes - start_time) // slot_duration
 
-			while attempt_time + task.duration <= max_time and not scheduled:
-				# Check if time slot is free
-				slot_free = True
-				for scheduled_time, scheduled_duration in scheduled_times:
-					# Check for overlap
-					if not (attempt_time + task.duration <= scheduled_time or
-					        attempt_time >= scheduled_time + scheduled_duration):
-						slot_free = False
-						break
+				# Check if preferred slot is valid and available
+				if 0 <= preferred_slot <= num_slots - slots_needed:
+					if not any(time_slots[preferred_slot:preferred_slot + slots_needed]):
+						# Check constraint compatibility (if constraint exists)
+						if task.time_constraint is None or self._can_schedule_at(preferred_minutes, task.duration, task.time_constraint):
+							# Schedule at preferred time
+							for i in range(preferred_slot, preferred_slot + slots_needed):
+								time_slots[i] = True
 
-				# Check if it meets time constraints
-				if slot_free and self._can_schedule_at(attempt_time, task.duration, task.time_constraint):
-					scheduled = True
-					scheduled_time = self._minutes_to_time(attempt_time)
+							# Smart break insertion
+							if task.duration > 30 and preferred_slot + slots_needed < num_slots:
+								time_slots[preferred_slot + slots_needed] = True
 
-					# Build reason
-					reason = f"Scheduled based on {task.priority.name} priority"
-					if task.time_constraint:
-						reason += f" (constraint: {task.time_constraint})"
+							scheduled = True
+							scheduled_time = task.preferred_time
+							reason = f"Scheduled at preferred time {task.preferred_time.strftime('%I:%M %p')}"
 
-					# Check for pet restrictions
-					pet = self.owner.get_pet(task.pet_name)
-					if pet and pet.restrictions:
-						reason += f" considering pet restrictions: {', '.join(pet.restrictions)}"
+			# Fallback: Try constraint-based or any available slot
+			if not scheduled:
+				for slot_index in range(num_slots - slots_needed + 1):
+					attempt_time = start_time + (slot_index * slot_duration)
 
-					self.current_schedule.append({
-						'task': task,
-						'time': scheduled_time,
-						'pet_name': task.pet_name,
-						'reason': reason
-					})
+					# Check if all required consecutive slots are free
+					if not any(time_slots[slot_index:slot_index + slots_needed]):
+						# Check if it meets time constraints
+						if self._can_schedule_at(attempt_time, task.duration, task.time_constraint):
+							# Mark slots as occupied
+							for i in range(slot_index, slot_index + slots_needed):
+								time_slots[i] = True
 
-					scheduled_times.append((attempt_time, task.duration))
-					current_time_minutes = attempt_time + task.duration
-				else:
-					attempt_time += 15  # Try next 15-minute slot
+							# Smart break insertion: add 15-min break after tasks > 30 min
+							if task.duration > 30 and slot_index + slots_needed < num_slots:
+								time_slots[slot_index + slots_needed] = True
+
+							scheduled = True
+							scheduled_time = self._minutes_to_time(attempt_time)
+
+							# Build reason
+							if task.preferred_time:
+								reason = f"Preferred time {task.preferred_time.strftime('%I:%M %p')} unavailable, scheduled based on {task.priority.name} priority"
+							else:
+								reason = f"Scheduled based on {task.priority.name} priority"
+							break  # Task scheduled, move to next task
+
+			# Add common reason elements and schedule entry
+			if scheduled:
+				if task.time_constraint:
+					reason += f" (constraint: {task.time_constraint})"
+
+				# Check for pet restrictions
+				pet = self.owner.get_pet(task.pet_name)
+				if pet and pet.restrictions:
+					reason += f" considering pet restrictions: {', '.join(pet.restrictions)}"
+
+				self.current_schedule.append({
+					'task': task,
+					'time': scheduled_time,
+					'pet_name': task.pet_name,
+					'reason': reason
+				})
 
 			if not scheduled:
 				# Couldn't schedule this task
