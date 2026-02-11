@@ -1,6 +1,6 @@
 import streamlit as st
 import datetime
-from pawpal_system import Owner, Pet, Task, Priority, Scheduler
+from pawpal_system import Owner, Pet, Task, Priority, Scheduler, Frequency
 
 st.set_page_config(page_title="PawPal+", page_icon="🐾", layout="centered")
 
@@ -125,6 +125,30 @@ else:
         if constraint_time:
             time_constraint = f"{constraint_type} {constraint_time.strftime('%H:%M')}"
 
+    # Recurring task options
+    is_recurring = st.checkbox("Make this a recurring task")
+    frequency = None
+    scheduled_date = None
+
+    if is_recurring:
+        col1, col2 = st.columns(2)
+        with col1:
+            frequency_str = st.selectbox(
+                "Frequency",
+                ["daily", "weekly", "biweekly", "monthly"],
+                help="How often should this task repeat?"
+            )
+            frequency = Frequency(frequency_str)
+        with col2:
+            scheduled_date = st.date_input(
+                "Start date",
+                value=datetime.date.today(),
+                help="When should this recurring task start?"
+            )
+    else:
+        # For non-recurring tasks, set scheduled_date to today
+        scheduled_date = datetime.date.today()
+
     if st.button("Add task"):
         # Map string priority to Priority enum
         priority_map = {
@@ -139,33 +163,79 @@ else:
             priority=priority_map[priority],
             pet_name=selected_pet_name,
             preferred_time=preferred_time,
-            time_constraint=time_constraint
+            time_constraint=time_constraint,
+            frequency=frequency,
+            scheduled_date=scheduled_date
         )
 
         # Add task to the selected pet
         selected_pet = owner.get_pet(selected_pet_name)
         if selected_pet:
             selected_pet.add_task(task)
-            st.success(f"✅ Added task '{task_title}' for {selected_pet_name}!")
+            # Also add to owner's task index for fast lookup
+            st.session_state.owner.task_index[task.id] = task
+
+            recurring_msg = f" (recurring {frequency.value})" if frequency else ""
+            st.success(f"✅ Added task '{task_title}' for {selected_pet_name}{recurring_msg}!")
             st.rerun()
 
     # Display all tasks organized by pet
     st.markdown("#### Current Tasks")
     all_tasks = owner.get_all_tasks()
+
     if all_tasks:
-        tasks_data = []
-        for pet in owner.pets.values():
-            for task in pet.tasks:
-                tasks_data.append({
-                    "Pet": pet.name,
-                    "Task": task.title,
-                    "Preferred": task.preferred_time.strftime('%I:%M %p') if task.preferred_time else "-",
-                    "Priority": task.priority.name,
-                    "Duration (min)": task.duration,
-                    "Constraint": task.time_constraint if task.time_constraint else "-",
-                    "Status": "✓ Done" if task.completed else "○ Pending"
-                })
-        st.table(tasks_data)
+        # Show incomplete tasks with action buttons
+        incomplete_tasks = [t for t in all_tasks if not t.completed]
+
+        if incomplete_tasks:
+            st.write("**Pending Tasks:**")
+            for pet in owner.pets.values():
+                pet_incomplete = [t for t in pet.tasks if not t.completed]
+                if pet_incomplete:
+                    st.markdown(f"**{pet.name}:**")
+
+                    for task in pet_incomplete:
+                        col1, col2 = st.columns([4, 1])
+
+                        with col1:
+                            # Task details
+                            recurring_badge = f" `{task.frequency.value}`" if task.frequency else ""
+                            st.write(f"**{task.title}**{recurring_badge}")
+
+                            details = f"{task.duration} min • {task.priority.name}"
+                            if task.preferred_time:
+                                details += f" • {task.preferred_time.strftime('%I:%M %p')}"
+                            if task.scheduled_date:
+                                details += f" • {task.scheduled_date.strftime('%Y-%m-%d')}"
+                            st.caption(details)
+
+                        with col2:
+                            # Complete button
+                            if st.button("✓ Complete", key=f"complete_{task.id}"):
+                                success, next_task = owner.complete_task(task.id)
+
+                                if success:
+                                    if next_task:
+                                        st.success(f"✅ Completed! Next occurrence: {next_task.scheduled_date}")
+                                    else:
+                                        st.success("✅ Task completed!")
+                                    st.rerun()
+                                else:
+                                    st.error("❌ Failed to complete task")
+
+        # Show completed tasks in collapsible section
+        completed_tasks = [t for t in all_tasks if t.completed]
+        if completed_tasks:
+            with st.expander(f"Completed Tasks ({len(completed_tasks)})"):
+                tasks_data = []
+                for task in completed_tasks:
+                    tasks_data.append({
+                        "Pet": task.pet_name,
+                        "Task": task.title,
+                        "Priority": task.priority.name,
+                        "Date": task.scheduled_date.strftime('%Y-%m-%d') if task.scheduled_date else "-"
+                    })
+                st.table(tasks_data)
     else:
         st.info("No tasks yet. Add one above.")
 
@@ -180,8 +250,21 @@ if st.button("Generate schedule"):
     if not all_tasks:
         st.warning("⚠️ Please add at least one task before generating a schedule.")
     else:
-        # Create scheduler and generate schedule
+        # Create scheduler and check for preferred time conflicts BEFORE scheduling
         scheduler = Scheduler(owner)
+
+        # Check for potential conflicts in preferred times
+        warnings = scheduler.detect_preferred_time_conflicts()
+        if warnings:
+            st.warning("⚠️ Preferred Time Conflicts Detected:")
+            for warning in warnings:
+                if "Same pet conflict" in warning:
+                    st.error(warning)
+                else:
+                    st.info(warning)
+            st.caption("The scheduler will try to resolve these conflicts automatically.")
+
+        # Generate schedule
         schedule = scheduler.generate_schedule()
 
         # Display the schedule explanation
@@ -189,11 +272,11 @@ if st.button("Generate schedule"):
         st.markdown("### Today's Schedule")
         st.text(scheduler.explain_schedule())
 
-        # Check for conflicts
+        # Check for conflicts in final schedule (should be rare)
         conflicts = scheduler.detect_conflicts()
         if conflicts:
-            st.error("⚠️ Conflicts detected:")
+            st.error("⚠️ Final schedule conflicts detected:")
             for conflict in conflicts:
                 st.write(f"- {conflict}")
         else:
-            st.success("✓ No scheduling conflicts detected!")
+            st.success("✓ No scheduling conflicts in final schedule!")

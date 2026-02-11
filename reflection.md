@@ -45,6 +45,8 @@ The priority and time constraints take the highest precendence in deciding how t
 - Describe one tradeoff your scheduler makes.
 - Why is that tradeoff reasonable for this scenario?
 
+One tradeoff my scheduler makes is using 15-minute time slots for scheduling tasks instead of precise minute-level times. The cons of this approach are that short tasks can waste slot space, fewer tasks can fit into a single day, and there's less flexibility with scheduling. However, I think this design choice is reasonable because its conceptually simpler, more readable, more realistic to how people schedule tasks (blocks instead of arbitrary times), and has better performance in terms of space.
+
 ---
 
 ## 3. AI Collaboration

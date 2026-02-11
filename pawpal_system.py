@@ -1,7 +1,7 @@
 from typing import List, Dict, Optional
 from dataclasses import dataclass, field
 from enum import Enum
-from datetime import time
+from datetime import time, date, timedelta
 import uuid
 
 class Priority(Enum):
@@ -9,6 +9,13 @@ class Priority(Enum):
 	LOW = 1
 	MEDIUM = 2
 	HIGH = 3
+
+class Frequency(Enum):
+	"""Frequency options for recurring tasks."""
+	DAILY = "daily"
+	WEEKLY = "weekly"
+	BIWEEKLY = "biweekly"
+	MONTHLY = "monthly"
 
 @dataclass
 class Pet:
@@ -48,6 +55,9 @@ class Task:
 	preferred_time: Optional[time] = None  # User's preferred time for task
 	time_constraint: Optional[str] = None  # e.g., "before 08:00", "after 18:00"
 	completed: bool = False  # Completion status
+	frequency: Optional[Frequency] = None  # Recurrence pattern (None for non-recurring tasks)
+	scheduled_date: Optional[date] = None  # The specific date this task is for
+	parent_task_id: Optional[str] = None  # Links to the original recurring task template
 
 	@staticmethod
 	def parse_preferred_time(time_str: str) -> Optional[time]:
@@ -111,6 +121,155 @@ class Task:
 
 		return True, None
 
+	@staticmethod
+	def sort_by_time(tasks: List['Task']) -> List['Task']:
+		"""Sort tasks by their preferred_time in HH:MM format.
+
+		Tasks without a preferred_time will be sorted last.
+
+		Args:
+			tasks: List of Task objects to sort
+
+		Returns:
+			New list of tasks sorted by preferred_time
+
+		Example:
+			sorted_tasks = Task.sort_by_time(my_tasks)
+		"""
+		return sorted(
+			tasks,
+			key=lambda task: task.preferred_time.strftime("%H:%M") if task.preferred_time else "99:99"
+		)
+
+	@staticmethod
+	def filter_by_completion(tasks: List['Task'], completed: bool) -> List['Task']:
+		"""Filter tasks by completion status.
+
+		Args:
+			tasks: List of Task objects to filter
+			completed: True for completed tasks, False for incomplete tasks
+
+		Returns:
+			New list of tasks matching the completion status
+
+		Example:
+			incomplete_tasks = Task.filter_by_completion(my_tasks, completed=False)
+		"""
+		return [task for task in tasks if task.completed == completed]
+
+	@staticmethod
+	def filter_by_pet(tasks: List['Task'], pet_name: str) -> List['Task']:
+		"""Filter tasks by pet name.
+
+		Args:
+			tasks: List of Task objects to filter
+			pet_name: Name of the pet to filter by
+
+		Returns:
+			New list of tasks for the specified pet
+
+		Example:
+			mochi_tasks = Task.filter_by_pet(my_tasks, "Mochi")
+		"""
+		return [task for task in tasks if task.pet_name == pet_name]
+
+	@staticmethod
+	def filter_tasks(tasks: List['Task'], pet_name: Optional[str] = None, completed: Optional[bool] = None) -> List['Task']:
+		"""Filter tasks by pet name and/or completion status.
+
+		Args:
+			tasks: List of Task objects to filter
+			pet_name: Optional pet name to filter by
+			completed: Optional completion status to filter by (True/False)
+
+		Returns:
+			New list of tasks matching the filter criteria
+
+		Example:
+			# Get incomplete tasks for Mochi
+			mochi_incomplete = Task.filter_tasks(my_tasks, pet_name="Mochi", completed=False)
+
+			# Get all completed tasks
+			completed_tasks = Task.filter_tasks(my_tasks, completed=True)
+
+			# Get all tasks for a specific pet
+			buddy_tasks = Task.filter_tasks(my_tasks, pet_name="Buddy")
+		"""
+		filtered = tasks
+
+		if pet_name is not None:
+			filtered = [task for task in filtered if task.pet_name == pet_name]
+
+		if completed is not None:
+			filtered = [task for task in filtered if task.completed == completed]
+
+		return filtered
+
+	def clone_for_next_occurrence(self) -> Optional['Task']:
+		"""Create a new task instance for the next occurrence of a recurring task.
+
+		Returns None if this is not a recurring task.
+
+		Example:
+			daily_task = Task(title="Walk", duration=30, frequency=Frequency.DAILY, ...)
+			tomorrow_task = daily_task.clone_for_next_occurrence()
+		"""
+		if not self.frequency:
+			return None
+
+		# Calculate next occurrence date
+		next_date = self._calculate_next_date()
+		if not next_date:
+			return None
+
+		# Create new task with same properties but new ID and date
+		new_task = Task(
+			title=self.title,
+			duration=self.duration,
+			priority=self.priority,
+			pet_name=self.pet_name,
+			is_recurring=self.is_recurring,
+			preferred_time=self.preferred_time,
+			time_constraint=self.time_constraint,
+			completed=False,  # New task starts incomplete
+			frequency=self.frequency,
+			scheduled_date=next_date,
+			parent_task_id=self.parent_task_id or self.id  # Link to original
+		)
+
+		return new_task
+
+	def _calculate_next_date(self) -> Optional[date]:
+		"""Calculate the next occurrence date based on frequency.
+
+		Returns None if frequency is not set or scheduled_date is missing.
+		"""
+		if not self.frequency or not self.scheduled_date:
+			return None
+
+		current_date = self.scheduled_date
+
+		if self.frequency == Frequency.DAILY:
+			return current_date + timedelta(days=1)
+		elif self.frequency == Frequency.WEEKLY:
+			return current_date + timedelta(weeks=1)
+		elif self.frequency == Frequency.BIWEEKLY:
+			return current_date + timedelta(weeks=2)
+		elif self.frequency == Frequency.MONTHLY:
+			# Add approximately 30 days, then try to keep same day of month
+			next_month_approx = current_date + timedelta(days=30)
+			try:
+				# Try to keep the same day of month
+				return next_month_approx.replace(day=current_date.day)
+			except ValueError:
+				# Day doesn't exist in next month (e.g., Jan 31 -> Feb 31)
+				# Use last day of the month instead
+				# Get first day of month after next, then subtract one day
+				first_of_following_month = (next_month_approx.replace(day=1) + timedelta(days=32)).replace(day=1)
+				return first_of_following_month - timedelta(days=1)
+
+		return None
+
 class Owner:
 	def __init__(self, name: str):
 		self.name = name
@@ -147,6 +306,43 @@ class Owner:
 					setattr(task, key, value)
 			return True
 		return False
+
+	def complete_task(self, task_id: str) -> tuple[bool, Optional[Task]]:
+		"""Mark a task complete and generate next occurrence if recurring.
+
+		Args:
+			task_id: ID of the task to complete
+
+		Returns:
+			(success: bool, next_task: Optional[Task])
+			- success: True if task was found and marked complete
+			- next_task: The generated next occurrence task (if recurring), or None
+
+		Example:
+			success, next_task = owner.complete_task(task_id)
+			if next_task:
+				print(f"Next occurrence scheduled for {next_task.scheduled_date}")
+		"""
+		task = self.get_task_by_id(task_id)
+		if not task:
+			return (False, None)
+
+		# Mark current task complete
+		task.completed = True
+
+		# If recurring, generate next occurrence
+		next_task = None
+		if task.frequency:
+			next_task = task.clone_for_next_occurrence()
+
+			if next_task:
+				# Add next occurrence to the same pet
+				pet = self.get_pet(task.pet_name)
+				if pet:
+					pet.add_task(next_task)
+					self.task_index[next_task.id] = next_task
+
+		return (True, next_task)
 
 	def get_task_by_id(self, task_id: str) -> Optional[Task]:
 		"""Retrieve a task by its ID across all pets."""
@@ -267,6 +463,13 @@ class Scheduler:
 
 		# Filter out completed tasks
 		tasks = [t for t in tasks if not t.completed]
+
+		# Filter by scheduled date: include today + overdue + tasks without dates
+		today = date.today()
+		tasks = [
+			t for t in tasks
+			if t.scheduled_date is None or t.scheduled_date <= today
+		]
 
 		if not tasks:
 			return self.current_schedule
@@ -441,10 +644,24 @@ class Scheduler:
 
 				# Check for overlap
 				if not (end1 <= start2 or start1 >= end2):
-					violations.append(
-						f"Tasks '{item1['task'].title}' and '{item2['task'].title}' overlap at "
-						f"{item1['time'].strftime('%I:%M %p')}"
-					)
+					# Determine conflict type based on pet
+					pet1 = item1['pet_name']
+					pet2 = item2['pet_name']
+
+					if pet1 == pet2:
+						# Same pet conflict - more critical
+						violations.append(
+							f"⚠️ Same pet conflict: '{item1['task'].title}' and '{item2['task'].title}' "
+							f"for {pet1} overlap at {item1['time'].strftime('%I:%M %p')} "
+							f"({item1['task'].duration} min + {item2['task'].duration} min)"
+						)
+					else:
+						# Different pets conflict - less critical but still a warning
+						violations.append(
+							f"ℹ️ Multi-pet conflict: '{item1['task'].title}' ({pet1}) and "
+							f"'{item2['task'].title}' ({pet2}) overlap at {item1['time'].strftime('%I:%M %p')} "
+							f"- you may need assistance with both pets"
+						)
 
 		# Check time constraints
 		for item in schedule:
@@ -472,7 +689,88 @@ class Scheduler:
 
 		return len(violations) == 0, violations
 
+	def detect_preferred_time_conflicts(self) -> List[str]:
+		"""Detect potential conflicts in preferred times before scheduling.
+
+		Checks if tasks have overlapping preferred times, which may cause
+		the scheduler to move one of them. This is a lightweight check that
+		warns about potential scheduling issues.
+
+		Returns list of warning messages.
+		"""
+		warnings = []
+		all_tasks = self.owner.get_all_tasks()
+
+		# Only check incomplete tasks with preferred times
+		tasks_with_times = [
+			t for t in all_tasks
+			if not t.completed and t.preferred_time is not None
+		]
+
+		# Check all pairs for overlaps
+		for i, task1 in enumerate(tasks_with_times):
+			start1 = self._time_to_minutes(task1.preferred_time)
+			end1 = start1 + task1.duration
+
+			for task2 in tasks_with_times[i+1:]:
+				start2 = self._time_to_minutes(task2.preferred_time)
+				end2 = start2 + task2.duration
+
+				# Check for overlap
+				if not (end1 <= start2 or start1 >= end2):
+					pet1 = task1.pet_name
+					pet2 = task2.pet_name
+
+					if pet1 == pet2:
+						# Same pet - critical warning
+						warnings.append(
+							f"⚠️ Same pet conflict: '{task1.title}' and '{task2.title}' "
+							f"for {pet1} both prefer {task1.preferred_time.strftime('%I:%M %p')} "
+							f"(one will be rescheduled)"
+						)
+					else:
+						# Different pets - informational warning
+						warnings.append(
+							f"ℹ️ Multi-pet conflict: '{task1.title}' ({pet1}) and '{task2.title}' ({pet2}) "
+							f"both prefer {task1.preferred_time.strftime('%I:%M %p')} "
+							f"- you may need help with both pets"
+						)
+
+		return warnings
+
 	def detect_conflicts(self) -> List[str]:
-		"""Identify any scheduling conflicts in current_schedule."""
+		"""Identify any scheduling conflicts in current_schedule.
+
+		Returns list of human-readable conflict warnings.
+		Distinguishes between same-pet and multi-pet conflicts.
+		"""
 		is_valid, violations = self.validate_schedule(self.current_schedule)
 		return violations
+
+	def get_conflict_summary(self) -> Dict[str, any]:
+		"""Get detailed conflict analysis with categorization.
+
+		Returns dictionary with:
+		- total_conflicts: Total number of conflicts
+		- same_pet_conflicts: Number of same-pet overlaps (critical)
+		- multi_pet_conflicts: Number of different-pet overlaps (warning)
+		- constraint_violations: Number of time constraint violations
+		- unscheduled_tasks: Number of tasks that couldn't be scheduled
+		- details: List of all violation messages
+		"""
+		violations = self.detect_conflicts()
+
+		same_pet = sum(1 for v in violations if "Same pet conflict" in v)
+		multi_pet = sum(1 for v in violations if "Multi-pet conflict" in v)
+		constraint = sum(1 for v in violations if "violates constraint" in v)
+		unscheduled = sum(1 for v in violations if "not scheduled" in v)
+
+		return {
+			'total_conflicts': len(violations),
+			'same_pet_conflicts': same_pet,
+			'multi_pet_conflicts': multi_pet,
+			'constraint_violations': constraint,
+			'unscheduled_tasks': unscheduled,
+			'details': violations,
+			'has_critical_issues': same_pet > 0 or unscheduled > 0
+		}
