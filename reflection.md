@@ -34,11 +34,11 @@ After prompting the AI to review the skeleton for potential bottlenecks and miss
 
 - What constraints does your scheduler consider (for example: time, priority, preferences)?
 
-My scheduler considers if a task has to be done before or after a certain time (e.g., breakfast before 10:00 or walk after 12:00) and if its of low, high or medium priority. It also takes preferences into account such as if Buddy the dog prefers evening walks over morning.
+My scheduler considers if a task has to be done before or after a certain time (e.g., breakfast before 10:00 or walk after 12:00), if it has to be done at a specific time, and if its of low, high or medium priority.
 
 - How did you decide which constraints mattered most?
 
-The priority and set times/constraints take the highest precendence in deciding how to configure the schedule. 
+The set times/constraints take the highest precendence in deciding how to configure the schedule, then priority is considered after.
 
 **b. Tradeoffs**
 
@@ -105,8 +105,10 @@ I'm most satisfied with the enhanced display view for the schedule. Users are no
 
 - If you had another iteration, what would you improve or redesign?
 
-I would maybe do more with the Owner name displayed at the top. Currently it serves an empty purpose because nothing happens when you input it, but I could make it so that there is some sort of login or profile that corresponds to a specific user. Even something as simple as a welcome message that depicts their name after they type it in would feel more interactive. I would also implement a way to remove or delete tasks.
+I would maybe do more with the Owner name displayed at the top. Currently it serves an empty purpose because nothing happens when you input it, but I could make it so that there is some sort of login or profile that corresponds to a specific user. Even something as simple as a welcome message that depicts their name after they type it in would feel more interactive. I would also implement a way to remove or delete tasks and circle back to the idea of user entering their own/pet's preferences.
 
 **c. Key takeaway**
 
 - What is one important thing you learned about designing systems or working with AI on this project?
+
+This project helped me learn that you could truly create a project from scratch using AI if you have a detailed enough project plan and system design in mind. It was fascinating to see it go from just a list of empty classes to a full-fledged program.
