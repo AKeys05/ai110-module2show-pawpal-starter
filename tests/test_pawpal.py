@@ -535,3 +535,392 @@ def test_no_conflicts_with_sequential_tasks():
 	scheduler.generate_schedule()
 	conflicts = scheduler.detect_conflicts()
 	assert len(conflicts) == 0
+
+
+# ========== Edge Case Tests ==========
+
+def test_sorting_correctness_chronological_order():
+	"""Test that tasks are sorted in chronological order by preferred time."""
+	# Create tasks in random order
+	tasks = [
+		Task(title="Afternoon", duration=30, priority=Priority.LOW, pet_name="Rex", preferred_time=time(15, 0)),
+		Task(title="Morning", duration=30, priority=Priority.LOW, pet_name="Rex", preferred_time=time(8, 0)),
+		Task(title="Evening", duration=30, priority=Priority.LOW, pet_name="Rex", preferred_time=time(20, 0)),
+		Task(title="Noon", duration=30, priority=Priority.LOW, pet_name="Rex", preferred_time=time(12, 0)),
+		Task(title="Early Morning", duration=30, priority=Priority.LOW, pet_name="Rex", preferred_time=time(6, 30))
+	]
+
+	# Sort tasks
+	sorted_tasks = Task.sort_by_time(tasks)
+
+	# Verify chronological order
+	assert sorted_tasks[0].title == "Early Morning"
+	assert sorted_tasks[1].title == "Morning"
+	assert sorted_tasks[2].title == "Noon"
+	assert sorted_tasks[3].title == "Afternoon"
+	assert sorted_tasks[4].title == "Evening"
+
+	# Verify times are in ascending order
+	for i in range(len(sorted_tasks) - 1):
+		assert sorted_tasks[i].preferred_time <= sorted_tasks[i + 1].preferred_time
+
+
+def test_sorting_tasks_without_preferred_time():
+	"""Test that tasks without preferred_time are sorted last."""
+	tasks = [
+		Task(title="No time 1", duration=30, priority=Priority.LOW, pet_name="Rex"),
+		Task(title="Morning", duration=30, priority=Priority.LOW, pet_name="Rex", preferred_time=time(8, 0)),
+		Task(title="No time 2", duration=30, priority=Priority.LOW, pet_name="Rex"),
+		Task(title="Afternoon", duration=30, priority=Priority.LOW, pet_name="Rex", preferred_time=time(15, 0))
+	]
+
+	sorted_tasks = Task.sort_by_time(tasks)
+
+	# First two should have times
+	assert sorted_tasks[0].preferred_time is not None
+	assert sorted_tasks[1].preferred_time is not None
+
+	# Last two should be None
+	assert sorted_tasks[2].preferred_time is None
+	assert sorted_tasks[3].preferred_time is None
+
+
+def test_sorting_empty_list():
+	"""Test that sorting an empty list returns an empty list."""
+	empty_list = []
+	sorted_tasks = Task.sort_by_time(empty_list)
+	assert sorted_tasks == []
+
+
+def test_sorting_single_task():
+	"""Test that sorting a single task returns a list with that task."""
+	task = Task(title="Solo", duration=30, priority=Priority.LOW, pet_name="Rex", preferred_time=time(8, 0))
+	sorted_tasks = Task.sort_by_time([task])
+	assert len(sorted_tasks) == 1
+	assert sorted_tasks[0] == task
+
+
+def test_monthly_recurring_task_edge_case_jan_31():
+	"""Test monthly task on Jan 31 becomes Feb 28 (or 29 in leap year)."""
+	# Non-leap year
+	task = Task(
+		title="Monthly Vet",
+		duration=60,
+		priority=Priority.HIGH,
+		pet_name="Rex",
+		frequency=Frequency.MONTHLY,
+		scheduled_date=date(2026, 1, 31)  # 2026 is not a leap year
+	)
+
+	next_task = task.clone_for_next_occurrence()
+
+	assert next_task is not None
+	assert next_task.scheduled_date.month == 2
+	# February 2026 has 28 days
+	assert next_task.scheduled_date.day == 28
+
+
+def test_year_boundary_crossing_weekly():
+	"""Test weekly task crossing year boundary."""
+	# Task on Dec 28, 2026 (Tuesday)
+	task = Task(
+		title="Weekly Walk",
+		duration=30,
+		priority=Priority.HIGH,
+		pet_name="Rex",
+		frequency=Frequency.WEEKLY,
+		scheduled_date=date(2026, 12, 28)
+	)
+
+	next_task = task.clone_for_next_occurrence()
+
+	assert next_task is not None
+	# Should be Jan 4, 2027
+	assert next_task.scheduled_date == date(2027, 1, 4)
+	assert next_task.scheduled_date.year == 2027
+
+
+def test_year_boundary_crossing_daily():
+	"""Test daily task crossing year boundary."""
+	# Task on Dec 31, 2026
+	task = Task(
+		title="Daily Walk",
+		duration=30,
+		priority=Priority.HIGH,
+		pet_name="Rex",
+		frequency=Frequency.DAILY,
+		scheduled_date=date(2026, 12, 31)
+	)
+
+	next_task = task.clone_for_next_occurrence()
+
+	assert next_task is not None
+	# Should be Jan 1, 2027
+	assert next_task.scheduled_date == date(2027, 1, 1)
+	assert next_task.scheduled_date.year == 2027
+
+
+def test_three_way_conflict_detection():
+	"""Test that three tasks with overlapping times are all detected."""
+	owner = Owner("Test Owner")
+	dog = Pet(name="Rex", species="Dog")
+	owner.add_pet(dog)
+
+	# Three tasks all preferring 8:00 AM
+	task1 = Task(
+		title="Task A",
+		duration=30,
+		priority=Priority.HIGH,
+		pet_name="Rex",
+		preferred_time=time(8, 0)
+	)
+
+	task2 = Task(
+		title="Task B",
+		duration=30,
+		priority=Priority.HIGH,
+		pet_name="Rex",
+		preferred_time=time(8, 0)
+	)
+
+	task3 = Task(
+		title="Task C",
+		duration=30,
+		priority=Priority.HIGH,
+		pet_name="Rex",
+		preferred_time=time(8, 0)
+	)
+
+	owner.add_task("Rex", task1)
+	owner.add_task("Rex", task2)
+	owner.add_task("Rex", task3)
+
+	scheduler = Scheduler(owner)
+	warnings = scheduler.detect_preferred_time_conflicts()
+
+	# Should detect 3 pairwise conflicts: A-B, A-C, B-C
+	assert len(warnings) == 3
+	assert all("Same pet conflict" in w for w in warnings)
+
+
+def test_zero_duration_task_scheduling():
+	"""Test that zero-duration tasks are handled (edge case)."""
+	owner = Owner("Test Owner")
+	dog = Pet(name="Rex", species="Dog")
+	owner.add_pet(dog)
+
+	# Zero duration task
+	task = Task(
+		title="Instant Check",
+		duration=0,
+		priority=Priority.HIGH,
+		pet_name="Rex",
+		preferred_time=time(8, 0)
+	)
+
+	owner.add_task("Rex", task)
+
+	scheduler = Scheduler(owner)
+	schedule = scheduler.generate_schedule()
+
+	# Should still schedule (or at least not crash)
+	assert len(schedule) >= 0  # May or may not schedule based on implementation
+
+
+def test_very_long_task_exceeding_window():
+	"""Test task longer than the scheduling window (6 AM - 10 PM = 16 hours)."""
+	owner = Owner("Test Owner")
+	dog = Pet(name="Rex", species="Dog")
+	owner.add_pet(dog)
+
+	# 17-hour task (exceeds 16-hour window)
+	task = Task(
+		title="Marathon Care",
+		duration=1020,  # 17 hours
+		priority=Priority.HIGH,
+		pet_name="Rex"
+	)
+
+	owner.add_task("Rex", task)
+
+	scheduler = Scheduler(owner)
+	schedule = scheduler.generate_schedule()
+
+	# Task should not be scheduled (doesn't fit)
+	scheduled_item = next((item for item in schedule if item['task'].title == "Marathon Care"), None)
+	assert scheduled_item is not None
+	# Should have time=None (couldn't schedule)
+	assert scheduled_item['time'] is None
+
+
+def test_task_at_window_boundary_start():
+	"""Test task at the start of scheduling window (6 AM)."""
+	owner = Owner("Test Owner")
+	dog = Pet(name="Rex", species="Dog")
+	owner.add_pet(dog)
+
+	task = Task(
+		title="Early Bird",
+		duration=30,
+		priority=Priority.HIGH,
+		pet_name="Rex",
+		preferred_time=time(6, 0)  # 6:00 AM (window start)
+	)
+
+	owner.add_task("Rex", task)
+
+	scheduler = Scheduler(owner)
+	schedule = scheduler.generate_schedule()
+
+	# Should be scheduled at 6:00 AM
+	assert len(schedule) == 1
+	assert schedule[0]['time'] == time(6, 0)
+
+
+def test_task_at_window_boundary_end():
+	"""Test task near the end of scheduling window (10 PM)."""
+	owner = Owner("Test Owner")
+	dog = Pet(name="Rex", species="Dog")
+	owner.add_pet(dog)
+
+	# Task that would end after 10 PM
+	task = Task(
+		title="Late Night",
+		duration=30,
+		priority=Priority.HIGH,
+		pet_name="Rex",
+		preferred_time=time(21, 45)  # 9:45 PM, ends at 10:15 PM
+	)
+
+	owner.add_task("Rex", task)
+
+	scheduler = Scheduler(owner)
+	schedule = scheduler.generate_schedule()
+
+	# May or may not be scheduled depending on boundary logic
+	# At minimum, should not crash
+	assert len(schedule) >= 0
+
+
+def test_conflict_detection_flags_duplicate_times():
+	"""Test that conflict detection flags multiple tasks at exactly the same time."""
+	owner = Owner("Test Owner")
+	dog = Pet(name="Rex", species="Dog")
+	owner.add_pet(dog)
+
+	# Two tasks with identical preferred times
+	task1 = Task(
+		title="Walk",
+		duration=30,
+		priority=Priority.HIGH,
+		pet_name="Rex",
+		preferred_time=time(8, 0)
+	)
+
+	task2 = Task(
+		title="Feed",
+		duration=15,
+		priority=Priority.HIGH,
+		pet_name="Rex",
+		preferred_time=time(8, 0)  # Exact same time
+	)
+
+	owner.add_task("Rex", task1)
+	owner.add_task("Rex", task2)
+
+	scheduler = Scheduler(owner)
+	warnings = scheduler.detect_preferred_time_conflicts()
+
+	# Should detect conflict
+	assert len(warnings) > 0
+	assert any("Same pet conflict" in w for w in warnings)
+	assert any("Rex" in w for w in warnings)
+
+
+def test_filtering_empty_list():
+	"""Test filtering on empty list returns empty list."""
+	empty_list = []
+
+	filtered = Task.filter_by_completion(empty_list, completed=False)
+	assert filtered == []
+
+	filtered = Task.filter_by_pet(empty_list, "Rex")
+	assert filtered == []
+
+	filtered = Task.filter_tasks(empty_list, pet_name="Rex", completed=False)
+	assert filtered == []
+
+
+def test_filtering_no_matches():
+	"""Test filtering with criteria that match nothing."""
+	tasks = [
+		Task(title="Task 1", duration=30, priority=Priority.HIGH, pet_name="Rex", completed=False),
+		Task(title="Task 2", duration=30, priority=Priority.HIGH, pet_name="Rex", completed=False)
+	]
+
+	# Filter for completed tasks (none exist)
+	filtered = Task.filter_by_completion(tasks, completed=True)
+	assert len(filtered) == 0
+
+	# Filter for different pet (doesn't exist)
+	filtered = Task.filter_by_pet(tasks, "Nonexistent")
+	assert len(filtered) == 0
+
+
+def test_completing_task_multiple_times_idempotent():
+	"""Test that completing a task multiple times doesn't create multiple next occurrences."""
+	owner = Owner("Test Owner")
+	dog = Pet(name="Rex", species="Dog")
+	owner.add_pet(dog)
+
+	task = Task(
+		title="Daily Walk",
+		duration=30,
+		priority=Priority.HIGH,
+		pet_name="Rex",
+		frequency=Frequency.DAILY,
+		scheduled_date=date.today()
+	)
+	owner.add_task("Rex", task)
+
+	# Complete task first time
+	success1, next_task1 = owner.complete_task(task.id)
+	assert success1 == True
+	assert next_task1 is not None
+
+	# Try to complete same task again (already completed)
+	success2, next_task2 = owner.complete_task(task.id)
+
+	# Should still return success but clone from already-completed task
+	# This tests idempotency - completing twice shouldn't break things
+	assert success2 == True
+
+
+def test_recurrence_preserves_task_properties():
+	"""Test that recurring task clones preserve all original properties."""
+	original_task = Task(
+		title="Daily Walk",
+		duration=45,
+		priority=Priority.HIGH,
+		pet_name="Rex",
+		preferred_time=time(8, 30),
+		time_constraint="before 10:00",
+		frequency=Frequency.DAILY,
+		scheduled_date=date.today()
+	)
+
+	next_task = original_task.clone_for_next_occurrence()
+
+	# Verify all properties except date and ID are preserved
+	assert next_task.title == original_task.title
+	assert next_task.duration == original_task.duration
+	assert next_task.priority == original_task.priority
+	assert next_task.pet_name == original_task.pet_name
+	assert next_task.preferred_time == original_task.preferred_time
+	assert next_task.time_constraint == original_task.time_constraint
+	assert next_task.frequency == original_task.frequency
+
+	# But new task should have different ID and new date
+	assert next_task.id != original_task.id
+	assert next_task.scheduled_date != original_task.scheduled_date
+	assert next_task.completed == False

@@ -38,7 +38,7 @@ My scheduler considers if a task has to be done before or after a certain time (
 
 - How did you decide which constraints mattered most?
 
-The priority and time constraints take the highest precendence in deciding how to configure the schedule. 
+The priority and set times/constraints take the highest precendence in deciding how to configure the schedule. 
 
 **b. Tradeoffs**
 
@@ -56,6 +56,8 @@ One tradeoff my scheduler makes is using 15-minute time slots for scheduling tas
 - How did you use AI tools during this project (for example: design brainstorming, debugging, refactoring)?
 - What kinds of prompts or questions were most helpful?
 
+I used the Claude Plan Mode when I wanted to introduce a new method such as filtering, sorting, or conflict detection. When I didn't understand a suggestion or plan it created, I would ask it to clarify and define its relevance/importance. If I was torn between multiple methods of approaching a problem or new implementation, I would ask it brainstorm the pros and cons of each. Prompts/questions that specifically referred to a snippet of code were the most helpful because they targeted exactly what I was asking without my need for repeated prompting.
+
 **b. Judgment and verification**
 
 - Describe one moment where you did not accept an AI suggestion as-is.
@@ -70,8 +72,18 @@ One tradeoff my scheduler makes is using 15-minute time slots for scheduling tas
 - What behaviors did you test?
 - Why were these tests important?
 
-**b. Confidence**
+I tested the following behaviors:
+- change of task completion status
+- task count changing when adding tasks
+- tasks are correctly scheduled at their listed preferred time 
+- marking recurring tasks complete auto-generates the next occurence
+- recurring tasks correctly calculate next date
+- tasks with overlapping preferred times are detected
+- sorting and filtering edge cases (e.g., empty lists, single task, week/month boundaries, etc.)
 
+Theses tests were important because they made sure that every potential user journey will allow for either successful use of system features or a graceful display of warnings.
+
+**b. Confidence**
 - How confident are you that your scheduler works correctly?
 - What edge cases would you test next if you had more time?
 

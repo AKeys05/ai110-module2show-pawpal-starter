@@ -256,16 +256,26 @@ class Task:
 		elif self.frequency == Frequency.BIWEEKLY:
 			return current_date + timedelta(weeks=2)
 		elif self.frequency == Frequency.MONTHLY:
-			# Add approximately 30 days, then try to keep same day of month
-			next_month_approx = current_date + timedelta(days=30)
+			# Calculate next month properly (not just +30 days)
+			# Handle month/year rollover
+			if current_date.month == 12:
+				next_year = current_date.year + 1
+				next_month = 1
+			else:
+				next_year = current_date.year
+				next_month = current_date.month + 1
+
 			try:
 				# Try to keep the same day of month
-				return next_month_approx.replace(day=current_date.day)
+				return date(next_year, next_month, current_date.day)
 			except ValueError:
 				# Day doesn't exist in next month (e.g., Jan 31 -> Feb 31)
-				# Use last day of the month instead
+				# Use last day of the next month instead
 				# Get first day of month after next, then subtract one day
-				first_of_following_month = (next_month_approx.replace(day=1) + timedelta(days=32)).replace(day=1)
+				if next_month == 12:
+					first_of_following_month = date(next_year + 1, 1, 1)
+				else:
+					first_of_following_month = date(next_year, next_month + 1, 1)
 				return first_of_following_month - timedelta(days=1)
 
 		return None
