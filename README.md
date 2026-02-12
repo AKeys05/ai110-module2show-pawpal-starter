@@ -134,13 +134,13 @@ New features include:
 
 ### 📸 Demo
 
-![Screenshot of app welcome message](Demo Pics/demo_welcome.png)
+![Screenshot of app welcome message](Demo%20Pics/demo_welcome.png)
 
-![Screenshot of app pet management](Demo Pics/demo_pets.png)
+![Screenshot of app pet management](Demo%20Pics/demo_pets.png)
 
-![Screenshot of app task management](Demo Pics/demo_tasks.png)
+![Screenshot of app task management](Demo%20Pics/demo_tasks.png)
 
-![Screenshot of app schedule view](Demo Pics/demo_schedule.png)
+![Screenshot of app schedule view](Demo%20Pics/demo_schedule.png)
 
 
 
