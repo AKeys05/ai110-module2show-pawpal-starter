@@ -457,8 +457,33 @@ class Scheduler:
 			return False
 		return True
 
-	def generate_schedule(self, pet_name: Optional[str] = None) -> List[Dict]:
+	def get_week_date_range(self, reference_date: Optional[date] = None) -> tuple[date, date]:
+		"""Get Monday-Sunday range for week containing reference_date.
+
+		Args:
+			reference_date: Date to find week for (defaults to today)
+
+		Returns:
+			(monday_date, sunday_date)
+		"""
+		if reference_date is None:
+			reference_date = date.today()
+
+		# Get day of week (0=Monday, 6=Sunday)
+		weekday = reference_date.weekday()
+
+		# Calculate Monday and Sunday of current week
+		monday = reference_date - timedelta(days=weekday)
+		sunday = monday + timedelta(days=6)
+
+		return (monday, sunday)
+
+	def generate_schedule(self, pet_name: Optional[str] = None, target_date: Optional[date] = None) -> List[Dict]:
 		"""Generate a schedule for all tasks (or tasks for specific pet).
+
+		Args:
+			pet_name: Optional pet name to filter tasks
+			target_date: Date to generate schedule for (defaults to today)
 
 		Returns list of dicts with keys: task, time, pet_name, reason.
 		Stores result in self.current_schedule for later explanation.
@@ -471,14 +496,18 @@ class Scheduler:
 		else:
 			tasks = self.owner.get_all_tasks()
 
-		# Filter out completed tasks
-		tasks = [t for t in tasks if not t.completed]
-
-		# Filter by scheduled date: include today + overdue + tasks without dates
-		today = date.today()
+		# Filter by scheduled date first: include target date + overdue + tasks without dates
+		reference_date = target_date if target_date is not None else date.today()
 		tasks = [
 			t for t in tasks
-			if t.scheduled_date is None or t.scheduled_date <= today
+			if t.scheduled_date is None or t.scheduled_date <= reference_date
+		]
+
+		# Filter out completed tasks UNLESS they're scheduled for today (target_date)
+		# This allows today's completed tasks to show in the schedule with a completion indicator
+		tasks = [
+			t for t in tasks
+			if not t.completed or (t.scheduled_date == reference_date)
 		]
 
 		if not tasks:
@@ -607,10 +636,13 @@ class Scheduler:
 			pet_name = item['pet_name']
 			reason = item['reason']
 
+			# Show completion status
+			status_indicator = "✅ COMPLETED - " if task.completed else ""
+
 			if scheduled_time:
-				explanation += f"⏰ {scheduled_time.strftime('%I:%M %p')}\n"
+				explanation += f"⏰ {status_indicator}{scheduled_time.strftime('%I:%M %p')}\n"
 			else:
-				explanation += f"⏰ NOT SCHEDULED\n"
+				explanation += f"⏰ {status_indicator}NOT SCHEDULED\n"
 
 			explanation += f"   Task: {task.title}\n"
 			explanation += f"   Pet: {pet_name}\n"

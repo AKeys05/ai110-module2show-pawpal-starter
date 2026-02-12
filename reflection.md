@@ -56,12 +56,14 @@ One tradeoff my scheduler makes is using 15-minute time slots for scheduling tas
 - How did you use AI tools during this project (for example: design brainstorming, debugging, refactoring)?
 - What kinds of prompts or questions were most helpful?
 
-I used the Claude Plan Mode when I wanted to introduce a new method such as filtering, sorting, or conflict detection. When I didn't understand a suggestion or plan it created, I would ask it to clarify and define its relevance/importance. If I was torn between multiple methods of approaching a problem or new implementation, I would ask it brainstorm the pros and cons of each. Prompts/questions that specifically referred to a snippet of code were the most helpful because they targeted exactly what I was asking without my need for repeated prompting.
+I used the Claude Plan Mode when I wanted to introduce a new method such as filtering, sorting, or conflict detection. When I didn't understand a suggestion or plan it created, I would ask it to clarify and define its relevance/importance. If I was torn between multiple methods of approaching a problem or new implementation, I would ask it to brainstorm the pros and cons of each. Prompts/questions that specifically referred to a snippet of code were the most helpful because they targeted exactly what I was asking without my need for repeated prompting.
 
 **b. Judgment and verification**
 
 - Describe one moment where you did not accept an AI suggestion as-is.
 - How did you evaluate or verify what the AI suggested?
+
+A time I did not accept an AI suggestion as-is was when I was trying to implement the sorting logic. It at first had difficulty understanding what exactly I was asking and was misinterpreting my request. I evaluated the suggestion by taking a look at the proposed change and seeing that 1) the docstring explanation did not match what I was asking and 2) the actual code within the method implemented unnecessary features.
 
 ---
 
@@ -87,6 +89,8 @@ Theses tests were important because they made sure that every potential user jou
 - How confident are you that your scheduler works correctly?
 - What edge cases would you test next if you had more time?
 
+On a scale of 1-5, I would rate my confidence level in my scheduler 4 stars. If I had more time, however, I would continue testing the generate schedule function to ensure it works with a variety of task types (i.e., recurring, one-time, time constraints, preferred times, no input time, overlapping tasks, invalid boundaries, etc.).
+
 ---
 
 ## 5. Reflection
@@ -95,9 +99,13 @@ Theses tests were important because they made sure that every potential user jou
 
 - What part of this project are you most satisfied with?
 
+I'm most satisfied with the enhanced display view for the schedule. Users are now able to view both a daily overview (showing both pending and completed tasks and their full details) as well as a calendar view that depicts the full week's scheduled tasks. I am also quite satisfied with the new features implemented for adding tasks.
+
 **b. What you would improve**
 
 - If you had another iteration, what would you improve or redesign?
+
+I would maybe do more with the Owner name displayed at the top. Currently it serves an empty purpose because nothing happens when you input it, but I could make it so that there is some sort of login or profile that corresponds to a specific user. Even something as simple as a welcome message that depicts their name after they type it in would feel more interactive. I would also implement a way to remove or delete tasks.
 
 **c. Key takeaway**
 

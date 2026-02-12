@@ -924,3 +924,204 @@ def test_recurrence_preserves_task_properties():
 	assert next_task.id != original_task.id
 	assert next_task.scheduled_date != original_task.scheduled_date
 	assert next_task.completed == False
+
+
+# ========== Integration Tests ==========
+
+def test_schedule_with_recurring_tasks():
+	"""Test schedule generation with recurring tasks."""
+	owner = Owner("Test Owner")
+	dog = Pet(name="Max", species="Dog")
+	owner.add_pet(dog)
+
+	# Add daily recurring task
+	daily_walk = Task(
+		title="Daily Walk",
+		duration=30,
+		priority=Priority.HIGH,
+		pet_name="Max",
+		preferred_time=time(8, 0),
+		frequency=Frequency.DAILY,
+		scheduled_date=date.today()
+	)
+
+	# Add one-time task
+	vet_visit = Task(
+		title="Vet Visit",
+		duration=60,
+		priority=Priority.HIGH,
+		pet_name="Max",
+		preferred_time=time(10, 0),
+		scheduled_date=date.today()
+	)
+
+	owner.add_task("Max", daily_walk)
+	owner.add_task("Max", vet_visit)
+
+	# Generate schedule
+	scheduler = Scheduler(owner)
+	schedule = scheduler.generate_schedule()
+
+	# Verify both tasks are scheduled
+	assert len(schedule) == 2
+	scheduled_titles = [item['task'].title for item in schedule]
+	assert "Daily Walk" in scheduled_titles
+	assert "Vet Visit" in scheduled_titles
+
+	# Complete the daily task
+	success, next_task = owner.complete_task(daily_walk.id)
+
+	# Verify next occurrence created
+	assert success == True
+	assert next_task is not None
+	assert next_task.scheduled_date == date.today() + timedelta(days=1)
+	assert len(dog.tasks) == 3  # Original daily (completed) + vet + next daily
+
+
+def test_schedule_with_conflicts():
+	"""Test schedule generation with conflicting preferred times."""
+	owner = Owner("Test Owner")
+	dog = Pet(name="Rex", species="Dog")
+	owner.add_pet(dog)
+
+	# Two tasks preferring same time
+	task1 = Task(
+		title="Walk",
+		duration=30,
+		priority=Priority.HIGH,
+		pet_name="Rex",
+		preferred_time=time(8, 0)
+	)
+
+	task2 = Task(
+		title="Feed",
+		duration=15,
+		priority=Priority.MEDIUM,
+		pet_name="Rex",
+		preferred_time=time(8, 0)  # Same time!
+	)
+
+	owner.add_task("Rex", task1)
+	owner.add_task("Rex", task2)
+
+	scheduler = Scheduler(owner)
+
+	# Check for conflicts BEFORE scheduling
+	warnings = scheduler.detect_preferred_time_conflicts()
+	assert len(warnings) > 0
+	assert any("Same pet conflict" in w for w in warnings)
+
+	# Generate schedule (should resolve conflicts)
+	schedule = scheduler.generate_schedule()
+
+	# Verify both tasks are in schedule
+	assert len(schedule) == 2
+
+	# Verify no conflicts in final schedule
+	final_conflicts = scheduler.detect_conflicts()
+	assert len(final_conflicts) == 0
+
+
+def test_sorting_and_filtering():
+	"""Test sorting and filtering with schedule generation."""
+	owner = Owner("Test Owner")
+	dog = Pet(name="Buddy", species="Dog")
+	cat = Pet(name="Whiskers", species="Cat")
+	owner.add_pet(dog)
+	owner.add_pet(cat)
+
+	# Add tasks in random order
+	tasks_data = [
+		("Afternoon Play", "Buddy", time(15, 0), Priority.MEDIUM, 20),
+		("Morning Walk", "Buddy", time(7, 0), Priority.HIGH, 30),
+		("Cat Breakfast", "Whiskers", time(6, 30), Priority.HIGH, 10),
+		("Evening Walk", "Buddy", time(18, 0), Priority.MEDIUM, 25),
+	]
+
+	for title, pet_name, pref_time, priority, duration in tasks_data:
+		task = Task(
+			title=title,
+			duration=duration,
+			priority=priority,
+			pet_name=pet_name,
+			preferred_time=pref_time
+		)
+		owner.add_task(pet_name, task)
+
+	# Test sorting
+	all_tasks = owner.get_all_tasks()
+	sorted_tasks = Task.sort_by_time(all_tasks)
+
+	# Verify chronological order
+	assert sorted_tasks[0].title == "Cat Breakfast"
+	assert sorted_tasks[1].title == "Morning Walk"
+	assert sorted_tasks[2].title == "Afternoon Play"
+	assert sorted_tasks[3].title == "Evening Walk"
+
+	# Test filtering
+	buddy_tasks = Task.filter_by_pet(all_tasks, "Buddy")
+	assert len(buddy_tasks) == 3
+	buddy_titles = [t.title for t in buddy_tasks]
+	assert "Morning Walk" in buddy_titles
+	assert "Afternoon Play" in buddy_titles
+	assert "Evening Walk" in buddy_titles
+
+	# Generate schedule
+	scheduler = Scheduler(owner)
+	schedule = scheduler.generate_schedule()
+
+	# Verify all tasks scheduled
+	assert len(schedule) == 4
+
+
+def test_monthly_edge_case():
+	"""Test monthly recurring task with edge case (Jan 31)."""
+	owner = Owner("Test Owner")
+	dog = Pet(name="Rex", species="Dog")
+	owner.add_pet(dog)
+
+	# Task scheduled for Jan 31
+	task = Task(
+		title="Monthly Vet",
+		duration=60,
+		priority=Priority.HIGH,
+		pet_name="Rex",
+		frequency=Frequency.MONTHLY,
+		scheduled_date=date(2026, 1, 31)
+	)
+	owner.add_task("Rex", task)
+
+	# Complete to generate next occurrence
+	success, next_task = owner.complete_task(task.id)
+
+	# Verify next occurrence is Feb 28 (non-leap year)
+	assert success == True
+	assert next_task is not None
+	assert next_task.scheduled_date == date(2026, 2, 28)
+
+
+def test_scheduler_tradeoff():
+	"""Demonstrate the 15-minute granularity tradeoff."""
+	owner = Owner("Test Owner")
+	dog = Pet(name="Rex", species="Dog")
+	owner.add_pet(dog)
+
+	# Create 10-minute task
+	task = Task(
+		title="Quick Feed",
+		duration=10,  # Only 10 minutes
+		priority=Priority.HIGH,
+		pet_name="Rex",
+		preferred_time=time(8, 0)
+	)
+	owner.add_task("Rex", task)
+
+	scheduler = Scheduler(owner)
+	schedule = scheduler.generate_schedule()
+
+	# Verify task is scheduled
+	assert len(schedule) == 1
+	assert schedule[0]['time'] == time(8, 0)
+
+	# Task duration is 10 minutes but scheduler uses 15-minute slots
+	# This is acceptable - it's a known tradeoff for simplicity

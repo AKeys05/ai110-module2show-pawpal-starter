@@ -53,6 +53,39 @@ else:
 
 owner = st.session_state.owner
 
+# Helper function for displaying task cards
+def display_task_card(schedule_item: dict, compact: bool = False, key_suffix: str = ""):
+	"""Display task with priority indicators and time context.
+
+	Args:
+		schedule_item: Dict with keys 'task', 'time', 'pet_name', 'reason'
+		compact: If True, use compact layout for calendar grid
+		key_suffix: Unique suffix for button keys
+	"""
+	task = schedule_item['task']
+	scheduled_time = schedule_item['time']
+
+	# Priority color coding
+	priority_colors = {
+		Priority.HIGH: "🔴",
+		Priority.MEDIUM: "🟡",
+		Priority.LOW: "🟢"
+	}
+
+	if compact:
+		# Compact view for weekly calendar
+		if scheduled_time:
+			st.markdown(f"{priority_colors[task.priority]} **{scheduled_time.strftime('%I:%M %p')}**")
+			st.caption(f"{task.title} ({task.duration}m)")
+			st.caption(f"🐾 {task.pet_name}")
+		else:
+			st.caption(f"⚠️ {task.title} (unscheduled)")
+	else:
+		# Full view for daily schedule
+		st.markdown(f"{priority_colors[task.priority]} **{task.title}**")
+		time_str = scheduled_time.strftime('%I:%M %p') if scheduled_time else "Not scheduled"
+		st.caption(f"{time_str} • {task.duration} min • {task.pet_name}")
+
 st.divider()
 
 # Pet Management Section
@@ -179,54 +212,122 @@ else:
             st.success(f"✅ Added task '{task_title}' for {selected_pet_name}{recurring_msg}!")
             st.rerun()
 
-    # Display all tasks organized by pet
+    # Display all tasks with enhanced filtering and sorting
     st.markdown("#### Current Tasks")
+
+    # Filter and sort controls
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        # Pet filter
+        pet_options = ["All Pets"] + list(owner.pets.keys())
+        selected_pet_filter = st.selectbox("Filter by pet", pet_options, key="task_pet_filter")
+
+    with col2:
+        # Sort option
+        sort_option = st.selectbox(
+            "Sort by",
+            ["Time", "Priority (High to Low)", "Pet Name"],
+            key="task_sort"
+        )
+
+    with col3:
+        # Completion filter
+        show_completed = st.checkbox("Show completed tasks inline", value=False)
+
+    st.divider()
+
+    # Get and filter tasks
     all_tasks = owner.get_all_tasks()
 
-    if all_tasks:
-        # Show incomplete tasks with action buttons
-        incomplete_tasks = [t for t in all_tasks if not t.completed]
+    # Apply pet filter
+    if selected_pet_filter != "All Pets":
+        all_tasks = Task.filter_by_pet(all_tasks, selected_pet_filter)
 
-        if incomplete_tasks:
-            st.write("**Pending Tasks:**")
-            for pet in owner.pets.values():
-                pet_incomplete = [t for t in pet.tasks if not t.completed]
-                if pet_incomplete:
-                    st.markdown(f"**{pet.name}:**")
+    # Apply completion filter
+    if not show_completed:
+        all_tasks = Task.filter_by_completion(all_tasks, completed=False)
 
-                    for task in pet_incomplete:
-                        col1, col2 = st.columns([4, 1])
+    # Apply sorting
+    if sort_option == "Time":
+        all_tasks = Task.sort_by_time(all_tasks)
+    elif sort_option == "Priority (High to Low)":
+        all_tasks = sorted(all_tasks, key=lambda t: t.priority.value, reverse=True)
+    elif sort_option == "Pet Name":
+        all_tasks = sorted(all_tasks, key=lambda t: t.pet_name)
 
-                        with col1:
-                            # Task details
-                            recurring_badge = f" `{task.frequency.value}`" if task.frequency else ""
-                            st.write(f"**{task.title}**{recurring_badge}")
+    # Display tasks
+    if not all_tasks:
+        st.info("No tasks match your filters.")
+    else:
+        for task in all_tasks:
+            # Priority color indicators
+            priority_colors = {
+                Priority.HIGH: "🔴",
+                Priority.MEDIUM: "🟡",
+                Priority.LOW: "🟢"
+            }
 
-                            details = f"{task.duration} min • {task.priority.name}"
-                            if task.preferred_time:
-                                details += f" • {task.preferred_time.strftime('%I:%M %p')}"
-                            if task.scheduled_date:
-                                details += f" • {task.scheduled_date.strftime('%Y-%m-%d')}"
-                            st.caption(details)
+            col1, col2 = st.columns([4, 1])
 
-                        with col2:
-                            # Complete button
-                            if st.button("✓ Complete", key=f"complete_{task.id}"):
-                                success, next_task = owner.complete_task(task.id)
+            with col1:
+                # Task title with status and priority
+                recurring_badge = f" `{task.frequency.value}`" if task.frequency else ""
+                status_icon = "✅" if task.completed else "⭕"
 
-                                if success:
-                                    if next_task:
-                                        st.success(f"✅ Completed! Next occurrence: {next_task.scheduled_date}")
-                                    else:
-                                        st.success("✅ Task completed!")
-                                    st.rerun()
-                                else:
-                                    st.error("❌ Failed to complete task")
+                st.markdown(f"{status_icon} {priority_colors[task.priority]} **{task.title}**{recurring_badge}")
 
-        # Show completed tasks in collapsible section
-        completed_tasks = [t for t in all_tasks if t.completed]
+                # Enhanced details with time context
+                details_parts = [
+                    f"{task.duration} min",
+                    f"{task.priority.name} priority",
+                    f"🐾 {task.pet_name}"
+                ]
+
+                # Add time context
+                if task.preferred_time:
+                    details_parts.append(f"⏰ Prefers {task.preferred_time.strftime('%I:%M %p')}")
+
+                # Add date context
+                if task.scheduled_date:
+                    today = datetime.date.today()
+                    if task.scheduled_date == today:
+                        details_parts.append("📅 Today")
+                    elif task.scheduled_date < today:
+                        days_ago = (today - task.scheduled_date).days
+                        details_parts.append(f"📅 {days_ago} day{'s' if days_ago > 1 else ''} overdue")
+                    else:
+                        details_parts.append(f"📅 {task.scheduled_date.strftime('%b %d')}")
+
+                st.caption(" • ".join(details_parts))
+
+                # Duration visualization
+                max_duration = 120  # 2 hours for scaling
+                duration_pct = min(task.duration / max_duration, 1.0)
+                st.progress(duration_pct, text=f"{task.duration} minutes")
+
+            with col2:
+                # Complete button (only for incomplete tasks)
+                if not task.completed:
+                    if st.button("✓ Complete", key=f"complete_{task.id}"):
+                        success, next_task = owner.complete_task(task.id)
+
+                        if success:
+                            if next_task:
+                                st.success(f"✅ Completed! Next: {next_task.scheduled_date}")
+                            else:
+                                st.success("✅ Task completed!")
+                            st.rerun()
+                        else:
+                            st.error("❌ Failed to complete task")
+
+            st.divider()
+
+    # Completed tasks in collapsible section
+    if not show_completed:  # Only show expander if not showing inline
+        completed_tasks = [t for t in owner.get_all_tasks() if t.completed]
         if completed_tasks:
-            with st.expander(f"Completed Tasks ({len(completed_tasks)})"):
+            with st.expander(f"📋 Completed Tasks ({len(completed_tasks)})"):
                 tasks_data = []
                 for task in completed_tasks:
                     tasks_data.append({
@@ -236,47 +337,125 @@ else:
                         "Date": task.scheduled_date.strftime('%Y-%m-%d') if task.scheduled_date else "-"
                     })
                 st.table(tasks_data)
-    else:
-        st.info("No tasks yet. Add one above.")
 
 st.divider()
 
-st.subheader("Build Schedule")
+st.subheader("📅 Schedule View")
 
-if st.button("Generate schedule"):
-    # Check if there are any tasks
-    all_tasks = owner.get_all_tasks()
+tab1, tab2 = st.tabs(["📋 Daily Schedule", "📅 Weekly Calendar"])
 
-    if not all_tasks:
-        st.warning("⚠️ Please add at least one task before generating a schedule.")
-    else:
-        # Create scheduler and check for preferred time conflicts BEFORE scheduling
+# TAB 1: Daily Schedule (existing functionality)
+with tab1:
+    if st.button("Generate Daily Schedule"):
+        # Check if there are any tasks
+        all_tasks = owner.get_all_tasks()
+
+        if not all_tasks:
+            st.warning("⚠️ Please add at least one task before generating a schedule.")
+        else:
+            # Create scheduler and check for preferred time conflicts BEFORE scheduling
+            scheduler = Scheduler(owner)
+
+            # Check for potential conflicts in preferred times
+            warnings = scheduler.detect_preferred_time_conflicts()
+            if warnings:
+                st.warning("⚠️ Preferred Time Conflicts Detected:")
+                for warning in warnings:
+                    if "Same pet conflict" in warning:
+                        st.error(warning)
+                    else:
+                        st.info(warning)
+                st.caption("The scheduler will try to resolve these conflicts automatically.")
+
+            # Generate schedule
+            schedule = scheduler.generate_schedule()
+
+            # Display the schedule explanation
+            st.success("✅ Schedule generated!")
+            st.markdown("### Today's Schedule")
+            st.text(scheduler.explain_schedule())
+
+            # Check for conflicts in final schedule (should be rare)
+            conflicts = scheduler.detect_conflicts()
+            if conflicts:
+                st.error("⚠️ Final schedule conflicts detected:")
+                for conflict in conflicts:
+                    st.write(f"- {conflict}")
+            else:
+                st.success("✓ No scheduling conflicts in final schedule!")
+
+# TAB 2: Weekly Calendar (NEW)
+with tab2:
+    st.markdown("### Weekly Calendar View")
+
+    # Date range selector
+    col1, col2 = st.columns(2)
+    with col1:
+        scheduler_helper = Scheduler(owner)
+        monday, sunday = scheduler_helper.get_week_date_range()
+        start_date = st.date_input("Week starting (Monday)", value=monday)
+    with col2:
+        from datetime import timedelta
+        end_date = start_date + timedelta(days=6)
+        st.info(f"Showing: {start_date.strftime('%b %d')} - {end_date.strftime('%b %d, %Y')}")
+
+    if st.button("Generate Weekly Calendar"):
         scheduler = Scheduler(owner)
 
-        # Check for potential conflicts in preferred times
-        warnings = scheduler.detect_preferred_time_conflicts()
-        if warnings:
-            st.warning("⚠️ Preferred Time Conflicts Detected:")
-            for warning in warnings:
-                if "Same pet conflict" in warning:
-                    st.error(warning)
+        # Generate schedules for 7 days
+        weekly_data = {}
+        for i in range(7):
+            current_day = start_date + timedelta(days=i)
+            schedule = scheduler.generate_schedule(target_date=current_day)
+            weekly_data[current_day] = schedule
+
+        st.markdown("---")
+
+        # Display calendar header
+        day_names = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+        cols = st.columns(7)
+
+        for idx, col in enumerate(cols):
+            with col:
+                day = start_date + timedelta(days=idx)
+                st.markdown(f"**{day_names[idx]}**")
+                st.caption(day.strftime("%b %d"))
+
+        # Display tasks in grid
+        cols = st.columns(7)
+
+        for idx, col in enumerate(cols):
+            day = start_date + timedelta(days=idx)
+            schedule = weekly_data[day]
+
+            with col:
+                if not schedule:
+                    st.caption("_No tasks_")
                 else:
-                    st.info(warning)
-            st.caption("The scheduler will try to resolve these conflicts automatically.")
+                    # Show only scheduled tasks
+                    scheduled_tasks = [item for item in schedule if item['time'] is not None]
 
-        # Generate schedule
-        schedule = scheduler.generate_schedule()
+                    if not scheduled_tasks:
+                        st.caption("_No tasks_")
+                    else:
+                        for item in scheduled_tasks:
+                            display_task_card(item, compact=True, key_suffix=day.isoformat())
+                            st.divider()
 
-        # Display the schedule explanation
-        st.success("✅ Schedule generated!")
-        st.markdown("### Today's Schedule")
-        st.text(scheduler.explain_schedule())
+        # Summary statistics
+        st.markdown("---")
+        st.markdown("### Weekly Summary")
 
-        # Check for conflicts in final schedule (should be rare)
-        conflicts = scheduler.detect_conflicts()
-        if conflicts:
-            st.error("⚠️ Final schedule conflicts detected:")
-            for conflict in conflicts:
-                st.write(f"- {conflict}")
-        else:
-            st.success("✓ No scheduling conflicts in final schedule!")
+        total_tasks = sum(len(schedule) for schedule in weekly_data.values())
+        total_scheduled = sum(
+            sum(1 for item in schedule if item['time'] is not None)
+            for schedule in weekly_data.values()
+        )
+
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Total Tasks", total_tasks)
+        with col2:
+            st.metric("Scheduled", total_scheduled)
+        with col3:
+            st.metric("Unscheduled", total_tasks - total_scheduled)
